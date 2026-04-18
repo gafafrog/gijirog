@@ -11,10 +11,10 @@
 
 ## M1: Python プロジェクト初期化
 
-- [ ] pyproject.toml 作成、venv セットアップ
-- [ ] discord.py インストール
-- [ ] プロジェクトのディレクトリ構成を決める
-- [ ] 動作確認: Python スクリプトがローカルで実行できる
+- [x] pyproject.toml 作成、venv セットアップ
+- [x] discord.py インストール
+- [x] プロジェクトのディレクトリ構成を決める
+- [x] 動作確認: Python スクリプトがローカルで実行できる
 
 ## M2: Discord Bot アプリケーション登録
 
