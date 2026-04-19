@@ -80,5 +80,7 @@ Python の `async def` / `await` を初めてちゃんと扱った。普通の `
 
 ログの出力先は `logging.basicConfig()` のデフォルトで **stderr**。stdout ではない。ターミナルでは区別がつかないがリダイレクト時に違いが出る。ECS Fargate では stdout/stderr が自動で CloudWatch Logs に流れる運用になるので、ファイル出力ではなく stream に出す今の設計がそのまま本番に乗る。
 
+Discord Bot の通信経路は **Gateway（WebSocket, 常時接続）** と **REST API（HTTPS, 都度接続）** のハイブリッド構成になっている。`client.run()` 以降は Gateway への WebSocket が張りっぱなしになり、Heartbeat（約 40 秒間隔）で維持される。ユーザーが `/ping` を叩いた通知は Gateway 経由で Interaction イベントとして届き、`await interaction.response.send_message("pong")` の返信だけが REST API で HTTPS POST として都度発行される。切断されても discord.py が自動再接続してくれる。この「常時接続で通知を受け、都度接続で操作する」ハイブリッドは Slack Bot、LINE Bot、MQTT、WebRTC シグナリング等にも共通する業界標準パターン。
+
 ### 次回やること
 M4: AWS SSM Parameter Store による Secrets 管理への移行。AWS CLI セットアップ → IAM 権限設計 → `/gijirog/dev/DISCORD_TOKEN` を SecureString として登録 → `scripts/bootstrap.sh` で SSM から `.env` を生成する流れを構築する。
