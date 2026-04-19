@@ -53,3 +53,32 @@ M2 を通して `.env` / `.env.example` の運用パターンを整理した。`
 
 ### 次回やること
 M3: Bot がオンラインになる（.env から DISCORD_TOKEN を読み、discord.py で接続、簡単なスラッシュコマンド /ping 応答、Discord 上でオンライン表示確認）。M3 が終わったら M4 で SSM 移行に進む。
+
+## 2026-04-19
+
+**マイルストーン**: M3
+
+### やったこと
+M3「Bot がオンラインになる」を完了した。`src/gijirog/__init__.py` を書き換え、`discord.Client` を継承した `GijirogClient` クラスに `app_commands.CommandTree` を持たせ、`/ping` スラッシュコマンドを Guild scoped で sync する構成にした。`.env.example` に `DISCORD_GUILD_ID` を追加し、ユーザーはテストサーバーの ID を Discord クライアントの開発者モード経由で取得して `.env` に追記。Intents は `Intents.default()` で message_content を OFF（スラッシュコマンドだけなら本文不要）、YAGNI で最小構成に絞った。「公開一人勉強会」チャンネルで `/ping` を実行し `pong` が返ることを確認、M3 完了。
+
+ハウスキーピングとして `.gitignore` に `*~`（Emacs バックアップ）を追加。エディタ固有は本来グローバル gitignore 向きだが、既に `.swp` や `.idea/` が入っていたので一貫性を優先してプロジェクト側に入れた。
+
+本セッションは connpass「等身大エンジニア会（公開一人勉強会）」として配信しながら進めたため、トークンや Guild ID など機密性のある表示には前もって警告を挟む運用を徹底した。
+
+### 学んだこと・議論したこと
+Discord API の用語では「サーバー」は **Guild** と呼ばれる。UI 上の呼称（Server）と API 上の呼称（Guild）がズレているだけで指しているものは同じ。スラッシュコマンドは使用前に Discord API への登録（sync）が必要で、Guild scope（指定サーバーに即時反映）と Global scope（全招待サーバー、最大 1 時間遅延）の 2 種類がある。開発中は Guild scope 一択。
+
+Intents は「Bot が受け取りたいイベントを事前申告する仕組み」。通常 Intents と Privileged Intents（message_content / members / presences）の 2 階層があり、Privileged 側は Developer Portal での明示 ON が必要。スラッシュコマンドは Discord 側で解釈されて Interaction イベントとして届くので **message_content は不要**。一方、プレフィックスコマンド（`!hello` のような）は本文解釈が必要なので message_content 必須。音声録音機能は Intents の話ではなくライブラリの話で、公式 discord.py が voice 受信を長らく非対応にしているため、M6 あたりで `discord-ext-voice-recv` or `py-cord` への乗り換えを検討することになる。
+
+Guild ID の秘匿性については「暗号的秘密ではない（知られても入室は不可）が、配信で積極的に見せる必要もない」という中間的な扱いと整理。`.env` に入れる運用で十分。
+
+Python の `async def` / `await` を初めてちゃんと扱った。普通の `def` と違い、`async def` は呼び出してもコードが走らず **コルーチン** オブジェクトを返すだけで、イベントループが `await` を介して実行を進める。`client.run()` が裏でイベントループを起動・維持しているため、我々は `async def` で関数を書き、`@client.tree.command` や `@client.event` で登録するだけで済む。`await` は `async def` の中でしか使えない。Bot のように I/O 待ちが大半の処理では、シングルスレッドで多数のイベントを並行捌きできるという async のメリットが効く。
+
+`build_client` 関数の中に `async def ping(...)` を書いているのは、**デコレータの副作用でコマンドを特定の client.tree に登録する**ためのパターン。Python の `def` は宣言ではなく実行可能な文なので、関数の中でも `if` の中でも書ける。トップレベルにフラットに書くスタイルも機構上は成立するが、「import 時に client が作られる副作用」「シングルトン前提になる」等のトレードオフがある。Flask の `app = Flask(__name__)` パターンが典型例。
+
+`python-dotenv` の `load_dotenv()` は `.env` の値をプロセスの環境変数にセットする（あたかも、ではなく実際に `os.environ` 経由で読める）。既存の環境変数は上書きしない仕様（シェル優先）で、これは本番環境で `.env` がうっかり残っていても事故らないようにという防御。Python 標準ではなくサードパーティで、Node.js の `dotenv` npm パッケージと同じポジション。12-Factor App の「コードは環境変数を読むだけ、値の供給源は環境ごとに差し替えられる」思想に沿っている。
+
+ログの出力先は `logging.basicConfig()` のデフォルトで **stderr**。stdout ではない。ターミナルでは区別がつかないがリダイレクト時に違いが出る。ECS Fargate では stdout/stderr が自動で CloudWatch Logs に流れる運用になるので、ファイル出力ではなく stream に出す今の設計がそのまま本番に乗る。
+
+### 次回やること
+M4: AWS SSM Parameter Store による Secrets 管理への移行。AWS CLI セットアップ → IAM 権限設計 → `/gijirog/dev/DISCORD_TOKEN` を SecureString として登録 → `scripts/bootstrap.sh` で SSM から `.env` を生成する流れを構築する。
