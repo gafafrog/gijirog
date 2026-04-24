@@ -42,29 +42,47 @@
 - [ ] scripts/bootstrap.sh 作成（SSM から .env を生成）
 - [ ] 動作確認: .env を削除 → bootstrap 実行 → Bot が再びオンラインになる
 
-## M5: Bot が音声チャンネルに参加する
-**実行環境: ローカル → Discord 音声チャンネル**
+## M5: Docker 化
+**実行環境: ローカル Docker コンテナ → Discord**
+
+- [ ] Dockerfile 作成
+- [ ] docker build & run で Bot が起動する
+- [ ] 動作確認: コンテナ内の Bot が Discord に接続し、/ping に応答する
+
+## M6: ECS Fargate に Walking Skeleton をデプロイ
+**実行環境: AWS (ECS Fargate) → Discord**
+
+- [ ] ECR にイメージを push する
+- [ ] ECS クラスター・タスク定義・サービスを作成する
+- [ ] タスク定義で SSM /gijirog/prod/DISCORD_TOKEN を参照して環境変数注入する
+- [ ] VPC・セキュリティグループの最低限の設定を行う
+- [ ] 動作確認: AWS 上で Bot が稼働し、/ping に応答する
+
+## M7: CI/CD を整備する
+**実行環境: GitHub Actions → AWS**
+
+- [ ] push / pull_request で lint・test・build を実行する
+- [ ] main から ECR push まで自動化する
+- [ ] ECS deploy 用の workflow を作成する
+- [ ] 最初は手動承認つきでデプロイできるようにする
+- [ ] 動作確認: コード変更 → workflow 実行 → 承認 → ECS 反映、の流れが通る
+
+## M8: Bot が音声チャンネルに参加する
+**実行環境: ローカル / AWS → Discord 音声チャンネル**
 
 - [ ] コマンドで Bot が音声チャンネルに参加・退出できる
 - [ ] discord.py の voice 関連 API を理解する
 - [ ] 動作確認: Bot が音声チャンネルに入ってきて、コマンドで退出する
 
-## M6: 録音機能
-**実行環境: ローカル → Discord 音声チャンネル → ローカルファイル**
+## M9: 録音機能
+**実行環境: ローカル / AWS → Discord 音声チャンネル → ローカルファイル or コンテナ内ファイル**
 
 - [ ] 音声チャンネルの音声を受信・録音する
 - [ ] 録音の開始・停止をコマンドで制御する
-- [ ] 音声ファイル（mp3/wav）としてローカルに保存する
+- [ ] 音声ファイル（mp3/wav）として保存する
 - [ ] 動作確認: 実際に喋った内容がファイルとして残っている
 
-## M7: Docker 化
-**実行環境: ローカル Docker コンテナ → Discord**
-
-- [ ] Dockerfile 作成
-- [ ] docker build & run で Bot が起動する
-- [ ] 動作確認: コンテナ内の Bot が Discord に接続し、録音できる（M6 までの機能がコンテナ上で動く）
-
-## M8: S3 連携
+## M10: S3 連携
 **実行環境: ローカル Docker コンテナ → S3**
 
 - [ ] S3 バケット作成
@@ -73,21 +91,12 @@
 - [ ] Discord にダウンロードリンク（署名付き URL）を通知する
 - [ ] 動作確認: 録音 → S3 保存 → Discord にリンク投稿、の一連の流れが動く
 
-## M9: ECS Fargate デプロイ
-**実行環境: AWS (ECS Fargate) → Discord**
-
-- [ ] SSM に /gijirog/prod/DISCORD_TOKEN を登録（本番用 Bot トークン）
-- [ ] ECR にイメージを push する
-- [ ] ECS クラスター・タスク定義・サービスを作成する（タスク定義で SSM /gijirog/prod/DISCORD_TOKEN を参照して環境変数注入）
-- [ ] VPC・セキュリティグループの設定
-- [ ] 動作確認: AWS 上で Bot が稼働し、M8 までの全機能が動く
-
-## M10: 運用改善
+## M11: 運用改善
 **実行環境: AWS**
 
 - [ ] EventBridge or Lambda による Bot の起動・停止スケジューリング
 - [ ] CloudWatch でログ・モニタリング
-- [ ] CI/CD パイプライン構築
+- [ ] デプロイ承認の自動化・簡略化
 
 ---
 
