@@ -35,10 +35,12 @@
 
 .env 平文管理から卒業し、チーム開発・本番運用に耐える形へ移行する。M3 で動くようになった Bot のトークンを、ローカル `.env` 直書きから SSM Parameter Store 取得に置き換える。アプリ側のコードは「環境変数を読むだけ」で変えない。
 
-- [ ] AWS アカウントの準備（既存利用 or 新規作成）
-- [ ] AWS CLI のローカルインストール・認証設定（SSO 推奨、最低でも IAM ユーザー + アクセスキー）
-- [ ] IAM ユーザー/ロールの作成（/gijirog/dev/* 読み取り権限）
-- [ ] SSM Parameter Store に /gijirog/dev/DISCORD_TOKEN を SecureString として登録
+- [x] AWS アカウントの準備（Org 配下に gijirog アカウントを新規作成）
+- [x] AWS CLI のローカルインストール・認証設定（IdC SSO で profile 作成、`aws sts get-caller-identity` で疎通確認）
+- [x] `infra/` で AWS CDK (TypeScript) プロジェクトを初期化、Node 22 LTS を mise で固定
+- [ ] `lib/infra-stack.ts` に SSM Parameter Store のリソースを定義（SecureString、`/gijirog/dev/DISCORD_TOKEN`）
+- [ ] `cdk bootstrap` で gijirog アカウントに CDKToolkit スタックを作成
+- [ ] `cdk deploy` でリソース実体化、`aws ssm put-parameter` で実トークン投入
 - [ ] scripts/bootstrap.sh 作成（SSM から .env を生成）
 - [ ] 動作確認: .env を削除 → bootstrap 実行 → Bot が再びオンラインになる
 
