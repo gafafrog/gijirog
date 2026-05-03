@@ -41,12 +41,11 @@
 - [x] SSM Parameter Store に実値を投入（`aws ssm put-parameter` で `/gijirog/dev/DISCORD_TOKEN` を SecureString、`/gijirog/dev/DISCORD_GUILD_ID` を String）
 - [x] `scripts/run-dev.sh` 作成（SSM から取得 → 環境変数に export → `exec uv run gijirog`、`.env` を作らない設計）
 - [x] 動作確認: `.env` を削除 → `run-dev.sh` 実行 → Bot が再びオンラインになり `/ping` が `pong` を返す
-- [ ] **【次回着手】開発者用 IAM ロールの作成（最小権限への移行）**
-  - 現状: ローカル開発は SSO の `AdministratorAccess` Permission Set を流用しており権限が広すぎる
-  - 目標: `/gijirog/dev/*` の `ssm:GetParameter` + KMS マネージドキー (`alias/aws/ssm`) の `kms:Decrypt` だけに絞った最小権限ロールに置き換える
-  - 作業: CDK で `infra/lib/infra-stack.ts` に IAM Role / ManagedPolicy を書く → `cdk bootstrap` → `cdk deploy` → 作ったロールを SSO で引き受けて `./scripts/run-dev.sh` が動くことを確認
-  - 副次効果: CDK プロジェクト初動の動作確認（`cdk bootstrap` / `cdk deploy` のフロー）も兼ねる
-  - 「何に対するアクセス権を持って動いているか」を意識しながら以降の M5/M6 に進めるようにする
+- [x] 開発者用 Permission Set の作成（最小権限への移行）
+  - 方針: 開発者ロールは「アプリ層」ではなく「Identity 層 / 組織インフラ」の責務と整理し、CDK 管理ではなく IdC 上で手動作成。必要権限はルート README の前提に policy JSON として明記し、将来「組織インフラ CDK」として切り出したくなった時の仕様書として機能させる。
+  - 権限: `/gijirog/dev/*` の `ssm:GetParameter` + KMS マネージドキー (`alias/aws/ssm`) の `kms:Decrypt` のみ
+  - README を「管理者側 prereq（declarative）」と「開発者の初期設定（actionable）」に再構成
+  - 新ロールで `./scripts/run-dev.sh` が動くこと確認済
 
 ## M5: Docker 化
 **実行環境: ローカル Docker コンテナ → Discord**
