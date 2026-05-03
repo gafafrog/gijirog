@@ -35,40 +35,48 @@ Discord テキストチャンネルにリンク通知
 
 ## ローカル開発
 
-### 前提
+### 前提（管理者側で整っていること）
 
-- `/gijirog/dev/*` パラメータを読める SSO プロファイルを持つ AWS アカウント
-- AWS CLI v2
-- [uv](https://docs.astral.sh/uv/)
+- AWS アカウントが作成され、IAM Identity Center が有効
+- Discord アプリケーション（Bot）が登録されている
+- SSM Parameter Store に以下のパラメータが投入されている:
+  - `/gijirog/dev/DISCORD_TOKEN` (SecureString) — Discord Bot トークン
+  - `/gijirog/dev/DISCORD_GUILD_ID` (String) — テストサーバーの Guild ID
+- IdC に次の権限を持つ Permission Set が作成され、開発者ユーザーに割り当てられている:
 
-このアカウント用に作った SSO プロファイル名を `AWS_PROFILE` にセットしてください（プロファイル名は自由）:
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadGijirogDevParameters",
+        "Effect": "Allow",
+        "Action": "ssm:GetParameter",
+        "Resource": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/gijirog/dev/*"
+      },
+      {
+        "Sid": "DecryptViaSsm",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "*",
+        "Condition": {
+          "StringEquals": {
+            "kms:ViaService": "ssm.<REGION>.amazonaws.com"
+          }
+        }
+      }
+    ]
+  }
+  ```
 
-```bash
-export AWS_PROFILE=gijirog-admin   # 自分でつけたプロファイル名に置き換える
-```
+### 開発者の初期設定
 
-シェルの rc、プロジェクト直下の `.envrc` (direnv)、あるいはシェルごとに毎回 export、いずれでも構いません。
+- AWS CLI v2 / [uv](https://docs.astral.sh/uv/) のインストール
+- `aws configure sso` で SSO プロファイルを作成し、プロファイル名を `AWS_PROFILE` にセット:
 
-### 初期セットアップ（環境ごとに 1 回）
-
-Bot は実行時に AWS SSM Parameter Store から Discord 認証情報を読み込みます。最初に値を登録してください:
-
-```bash
-# Discord Bot トークン（SecureString として暗号化保存）
-read -rs DISCORD_TOKEN   # 貼り付けるが画面には出ない
-aws ssm put-parameter \
-  --name /gijirog/dev/DISCORD_TOKEN \
-  --type SecureString \
-  --value "$DISCORD_TOKEN"
-unset DISCORD_TOKEN
-
-# スラッシュコマンドを sync する Discord サーバー (Guild) の ID
-# 取得方法: Discord 設定で Developer Mode を ON → サーバーアイコンを右クリック → 「サーバー ID をコピー」
-aws ssm put-parameter \
-  --name /gijirog/dev/DISCORD_GUILD_ID \
-  --type String \
-  --value <your-test-server-id>
-```
+  ```bash
+  export AWS_PROFILE=<your-profile-name>
+  ```
 
 ### Bot を起動する
 

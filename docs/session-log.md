@@ -171,3 +171,28 @@ M4 の本作業として、まず SSM Parameter Store の概念整理（String /
 
 ### 次回やること
 **M4 の最後の項目として、開発者用の IAM ロール（または Permission Set）を作成する**。現状はローカル開発を SSO の `AdministratorAccess` で動かしているが、本来は `/gijirog/dev/*` の `ssm:GetParameter` + `kms:Decrypt`（AWS マネージドキー）だけに絞られた最小権限ロールに置き換えるべき。これを CDK で書くことで、`infra/lib/infra-stack.ts` に最初の意味のあるリソースが入り、CDK プロジェクトの動作確認（`cdk bootstrap` → `cdk deploy`）も兼ねられる。「何に対するアクセス権を持って動いているか」を意識しながら開発する状態を作ることが目的。実装後は SSO ログイン時のロール選択でこのロールに切り替えてみて、`run-dev.sh` が引き続き動くことを確認する。
+
+## 2026-05-03
+
+**マイルストーン**: M4（開発者用 Permission Set の最小権限化、完了）
+
+### やったこと
+M4 の最終項目「開発者用ロールの最小権限化」に着手。前回の milestones では CDK で IAM Role を書いて `cdk bootstrap` / `cdk deploy` の練習も兼ねる方針だったが、セッション冒頭でユーザーから「この開発者ロールは本当にアプリ層のインフラか？むしろ組織インフラとしてオンボーディング時に整えるべきものでは？」という鋭い問いが入り、設計方針から議論し直した。最終的に「CDK 管理ではなく IdC 上で手動作成、必要権限は README に policy JSON として明記」という方針に転換し、CDK 初 deploy の練習は M6 (ECS) に持ち越し。
+
+実作業としては (1) `docs/milestones.md` の M4 最終項目を CDK ベースから IdC 手動 + README 明記方針に書き換え、(2) ルート README の「ローカル開発」を「管理者側で整っていること（declarative な前提）」と「開発者の初期設定（actionable な手順）」の二層構造に再構成、(3) 最小権限 policy JSON（`/gijirog/dev/*` の `ssm:GetParameter` + KMS マネージドキーの `kms:Decrypt` を `kms:ViaService` Condition で SSM 経由のみに絞る）を README の前提セクションに記載、(4) アカウント ID と region は `<ACCOUNT_ID>` / `<REGION>` プレースホルダ化、(5) ユーザー側で IdC に Permission Set を作成 → 自ユーザーに割当 → 新ロールで `./scripts/run-dev.sh` が動くことを疎通確認、まで完了。put-parameter の recipe は管理者の責務として README から消え、開発者向けセクションは declarative な前提に吸収された。
+
+### 学んだこと・議論したこと
+**開発者ロールはアプリ層か Identity 層か**を整理した。実務では Identity 層（IdC、Permission Set、SSO グループ）にあるのが定石で、理由は (a) chicken-and-egg 回避（その役割を deploy するための権限が要る）、(b) 複数アプリ持つ組織で各アプリリポに分散させるとスケールしない、(c) 人事イベント（入社・退職・異動）は Identity 層だけで吸収できる、の 3 点。中間案として「アプリ側の ManagedPolicy だけ CDK で、ロール割当は Identity 層」というハイブリッドもあるが、1人プロジェクトでは過剰。今回は「README に policy JSON で spec を残す」ことで、将来「組織インフラ CDK」として切り出したくなった時の仕様書として機能させる方向にした。経緯としては、当初 milestones 側で「CDK 初 deploy の練習も兼ねる」という副次効果を期待していたが、設計の正しさを優先して切り離した形。
+
+**README で個人設定をプレースホルダにする理由**は OPSEC ではなく **「README 正確性」**だ、というユーザーからの framing が鋭かった。読者は当然別のアカウントで動かすので、自分の account ID を書くのは事実として誤り。同じ理屈で region もプレースホルダ化した。前回 (4/25) の「Account ID は機密ではないが OPSEC 的に伏せる」とは別軸で、こちらは「読者にとって正しいか」という観点。この framing に合わせて既存の feedback メモリ「スクリプトに個人設定をハードコードしない」を「ユーザー向け成果物（スクリプト・README 共通）に個人設定を埋め込まない」に拡張。
+
+**ドキュメントでも「default to no comments」が適用される**ことを学んだ。最初 policy JSON の下に「KMS の Resource: \"*\" は AWS マネージドキーの key ID がアカウント/リージョンごとに動的だから広めに取り、代わりに kms:ViaService Condition で...」という解説文を入れたが、ユーザーから「こういうの書かなくて良くないか？自明でない？」と即指摘されて削除。policy 自体に Sid 名で意図が出ているので散文補足は冗長で、本当に非自明な情報がノイズに埋もれる。code に対する「コメントは WHY が非自明な時だけ」という原則は、そのまま README にも適用される。
+
+**README の二層構造**を確立した。「管理者側で整っていること」は declarative（"こういう状態になってる必要がある" だけ書く）、「開発者の初期設定」は actionable（手元で実行する手順）。前者には CLI コマンドを書かない。これにより、put-parameter の recipe は admin の責務として消え、開発者は「SSM パラメータが投入済」という前提だけを受け取る形になった。「Prereq セクションは admin/developer の二軸に分けるとスッキリする」というのが今回の最大の構造的学び。1人プロジェクトでも admin と developer は別の「役割」として書き分けると、リポジトリの再現性スコープが明確になる。
+
+**判断の経緯は session log、結果は README** という運用方針を明文化した。docs/README.md に判断ログを溜める ADR 的な運用は始めない。経緯は時系列で session log に流す、繰り返し参照される設計原則だけが docs/、結果は README、という線引き。今回の「アプリ層 vs Identity 層」議論も、結論だけ milestones の方針メモと README の policy spec として残し、議論経緯はこの session log に集約。
+
+**KMS マネージドキーへのアクセス絞り込みパターン**として、`alias/aws/ssm` のようなマネージドキーは key ID がアカウント・リージョンごとに動的なので Resource を ARN で固定しにくい。`Resource: "*"` + `kms:ViaService` Condition で「SSM 経由の Decrypt のみ」に絞るのが定石、と確認。Condition 側にリージョン情報（`ssm.<REGION>.amazonaws.com`）が入るので、リージョン横断の Decrypt にはならず、実用上の最小権限は達成できる。
+
+### 次回やること
+**M5: Docker 化**。`Dockerfile` を書いて、`docker build` → `docker run` でローカル Bot が Discord に接続し `/ping` に応答するところまで。ローカル Mac から直接走らせる代わりにコンテナ内から走らせるだけで、AWS 側（SSM 取得 → 環境変数注入）のフローは run-dev.sh と同じ構造を維持できるはず。残務として `AdministratorAccess` の自分への割り当てを IdC で外す（Dev ロールで疎通確認済なので不要）。
