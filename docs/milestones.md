@@ -38,11 +38,15 @@
 - [x] AWS アカウントの準備（Org 配下に gijirog アカウントを新規作成）
 - [x] AWS CLI のローカルインストール・認証設定（IdC SSO で profile 作成、`aws sts get-caller-identity` で疎通確認）
 - [x] `infra/` で AWS CDK (TypeScript) プロジェクトを初期化、Node 22 LTS を mise で固定
-- [ ] `lib/infra-stack.ts` に SSM Parameter Store のリソースを定義（SecureString、`/gijirog/dev/DISCORD_TOKEN`）
-- [ ] `cdk bootstrap` で gijirog アカウントに CDKToolkit スタックを作成
-- [ ] `cdk deploy` でリソース実体化、`aws ssm put-parameter` で実トークン投入
-- [ ] scripts/bootstrap.sh 作成（SSM から .env を生成）
-- [ ] 動作確認: .env を削除 → bootstrap 実行 → Bot が再びオンラインになる
+- [x] SSM Parameter Store に実値を投入（`aws ssm put-parameter` で `/gijirog/dev/DISCORD_TOKEN` を SecureString、`/gijirog/dev/DISCORD_GUILD_ID` を String）
+- [x] `scripts/run-dev.sh` 作成（SSM から取得 → 環境変数に export → `exec uv run gijirog`、`.env` を作らない設計）
+- [x] 動作確認: `.env` を削除 → `run-dev.sh` 実行 → Bot が再びオンラインになり `/ping` が `pong` を返す
+- [ ] **【次回着手】開発者用 IAM ロールの作成（最小権限への移行）**
+  - 現状: ローカル開発は SSO の `AdministratorAccess` Permission Set を流用しており権限が広すぎる
+  - 目標: `/gijirog/dev/*` の `ssm:GetParameter` + KMS マネージドキー (`alias/aws/ssm`) の `kms:Decrypt` だけに絞った最小権限ロールに置き換える
+  - 作業: CDK で `infra/lib/infra-stack.ts` に IAM Role / ManagedPolicy を書く → `cdk bootstrap` → `cdk deploy` → 作ったロールを SSO で引き受けて `./scripts/run-dev.sh` が動くことを確認
+  - 副次効果: CDK プロジェクト初動の動作確認（`cdk bootstrap` / `cdk deploy` のフロー）も兼ねる
+  - 「何に対するアクセス権を持って動いているか」を意識しながら以降の M5/M6 に進めるようにする
 
 ## M5: Docker 化
 **実行環境: ローカル Docker コンテナ → Discord**
