@@ -3,7 +3,6 @@ import os
 
 import discord
 from discord import app_commands
-from dotenv import load_dotenv
 
 
 logger = logging.getLogger(__name__)
@@ -37,9 +36,8 @@ def build_client(guild_id: int) -> GijirogClient:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    load_dotenv()
 
-    token = os.environ["DISCORD_TOKEN"]
+    token = os.environ.pop("DISCORD_TOKEN")
     guild_id = int(os.environ["DISCORD_GUILD_ID"])
 
     client = build_client(guild_id=guild_id)
