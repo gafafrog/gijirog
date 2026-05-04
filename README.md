@@ -71,14 +71,14 @@ Discord テキストチャンネルにリンク通知
 
 ### 開発者の初期設定
 
-- AWS CLI v2 / [uv](https://docs.astral.sh/uv/) のインストール
+- AWS CLI v2 / [uv](https://docs.astral.sh/uv/) / Docker Desktop のインストール
 - `aws configure sso` で SSO プロファイルを作成し、プロファイル名を `AWS_PROFILE` にセット:
 
   ```bash
   export AWS_PROFILE=<your-profile-name>
   ```
 
-### Bot を起動する
+### Bot をローカルで起動する
 
 ```bash
 aws sso login   # SSO セッションが切れていれば
@@ -86,3 +86,13 @@ aws sso login   # SSO セッションが切れていれば
 ```
 
 `run-dev.sh` は SSM から secrets を取得し、自プロセスの環境変数に export してから Bot を `exec` します。ディスクには何も書きません。
+
+### Bot を Docker で起動する
+
+```bash
+docker build -t gijirog:dev .
+aws sso login   # SSO セッションが切れていれば
+./scripts/run-dev-container.sh
+```
+
+`run-dev-container.sh` はホスト側で SSM から secrets を取得し、`docker run` の環境変数としてコンテナに渡します。secrets はイメージには含めません。
