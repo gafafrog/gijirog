@@ -50,9 +50,9 @@
 ## M5: Docker 化
 **実行環境: ローカル Docker コンテナ → Discord**
 
-- [ ] Dockerfile 作成
-- [ ] docker build & run で Bot が起動する
-- [ ] 動作確認: コンテナ内の Bot が Discord に接続し、/ping に応答する
+- [x] Dockerfile 作成
+- [x] docker build & run で Bot が起動する
+- [x] 動作確認: コンテナ内の Bot が Discord に接続し、/ping に応答する
 
 ## M6: ECS Fargate に Walking Skeleton をデプロイ
 **実行環境: AWS (ECS Fargate) → Discord**
