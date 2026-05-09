@@ -229,3 +229,34 @@ README も更新し、開発者の初期設定に Docker Desktop を追加した
 
 ### 次回やること
 今回の差分を review して commit する。その後、M6「ECS Fargate に Walking Skeleton をデプロイ」に入る前に、ECR / ECS / task definition / secrets 注入の関係を改めて整理する。
+
+## 2026-05-09
+
+**マイルストーン**: M6（CDK bootstrap + ECR リポジトリ作成）
+
+### やったこと
+M6 着手。前回末尾の宿題だった ECR / ECS / TaskDefinition / Service の関係整理は「テーマが出てきたら必要な分だけ深める」進め方に変更し、最小ステップから手を動かす方針にした。本セッションでは bootstrap と ECR repository の CDK 化までを完了。
+
+スコープ判断として、SSM のプレフィックスは個人プロジェクトなので `/gijirog/dev/` 一本に集約し、当面 `/gijirog/prod/` は作らない方針に変更（最後までこのままで終わる可能性も込み）。image push は CI を入れる前に手動で苦しみを経験する流れに据え置き。ネットワークは public subnet + `assignPublicIp: true` + SG ingress 完全クローズで進める方針を確定（後述）。
+
+`infra/` にて `npx cdk bootstrap aws://<ACCOUNT_ID>/us-west-2` を実行し、`CDKToolkit` スタックを us-west-2 に作成。途中、ターミナルで `node` / `npm` / `npx` が `not found` になる事象に遭遇。原因切り分けの結果、(a) `dotfiles/zsh/me.zsh` に `command -v mise > /dev/null && eval "$(mise activate zsh)"` が（前回ログ上では追加したことになっていたが実際には）入っていなかった、(b) 最近の mise は shim を PATH に常駐させず、`mise.toml` のあるディレクトリに `cd` した時のみ precmd フック経由で PATH に乗せる設計、の 2 段で詰まっていた。me.zsh に activate 行を追加し、`infra/` に降りて `which npx` が通ることを確認して bootstrap に進めた。
+
+ECR リソースを CDK で記述。`infra/lib/infra-stack.ts`（ボイラープレート）を `infra/lib/gijirog-app-stack.ts` に置き換え、`GijirogAppStack` クラスに `ecr.Repository` を 1 つ定義（name: `gijirog`、tag mutability: MUTABLE、scan on push: ON、removalPolicy: DESTROY + `emptyOnDelete: true`）。`bin/infra.ts` を新クラス import に書き換え、`env` を `{ account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION }` で明示。`cdk synth` → `cdk deploy` を通し、CFn の `GijirogAppStack` がコンソールで作成済みであること、その中に ECR Repository が含まれていることを確認。CDK で初めて意味のあるリソースが上がった記念回になった。
+
+セッション中盤で予定終了のため、次回は image build / push / ECS 構築から再開。
+
+### 学んだこと・議論したこと
+**public subnet vs private subnet + NAT** の判断軸を整理した。public subnet = IGW へのルートを持つ subnet という意味で、「公開しているか」とは別の概念。SG の ingress を閉じれば public subnet に置いても外から到達不能。「private + NAT が定石」と言われるのは多層防御・公開 IP を持たないことの精神的安心・監査要件の 3 点が主で、inbound を持たない outbound-only ワークロードでは NAT のコスト（~$32/月、task が止まっていても固定で発生）が割に合わない。public subnet + `assignPublicIp: true` なら public IPv4 課金は task 稼働中だけ、しかも 1 個 ~$3.6/月。VPC・Subnet・IGW・Route Table・Security Group は全部 $0 なので「箱は常駐させてもタダ」「動かす時だけ少額課金」というオンデマンド運用との相性が極めて良い構成になる。Phase 1 は public subnet で進めて、要件が変わったら NAT 構成へ切り替えを検討する方針。
+
+**Docker image の tag** は「ビルド済み artifact の住所」であり、git のリビジョン管理とは別レイヤー、と整理した。tag は registry 上で digest（image の真の不変 ID = SHA256）への可変ポインタ。1 image に複数 tag を付けられ、tag を別 image に張り替えられる。MUTABLE / IMMUTABLE は registry 側でこの張り替えを許可するかの設定。MUTABLE だと `gijirog:latest` の指す先がいつの間にか変わる事故が起き得るので、本番で再現性が要る場面では tag = git SHA + IMMUTABLE が定石。学習段階では MUTABLE + 固定 tag (`:dev`) で素直に push し直しできる方が体感が良いので、移行は CI 投入後（M7）に持ち越し。
+
+**CDK environment 表記**（`aws://<account>/<region>`）は ARN ではなく、CDK 内部の URI スキーム。account × region で deploy 先を一意に表す住所として bootstrap / deploy の両方で使う。同じ account でも region が違えば別 environment 扱いで、それぞれ bootstrap が必要、というのが概念の核。
+
+**`cdk bootstrap` が作るリソース**は CDK 自身の内部用で、ユーザーのプロジェクト用ではない、という分離を確認した。SSM Parameter (`/cdk-bootstrap/hnb659fds/version`) は bootstrap バージョン記録、ECR (`cdk-hnb659fds-container-assets-...`) は CDK アセット image の置き場、S3 は Lambda zip / CFn template の置き場。我々が今後定義する ECR は別 repo として独立する。
+
+**Stack 命名**については、汎用名（`GijirogStack`）と責務名（`GijirogAppStack`）を比較し、責務名で開始する判断にした。理由は将来 `GijirogPipelineStack` 等の兄弟 stack が並んだ時に「`Extra`」のような逃げ語に頼らず違和感なく並べられるため。「単一 stack 前提を暗黙に置かない」というのが命名上の明示的な意思表示。
+
+**mise activate の挙動**を実体で理解した。最近の mise は shim を常時 PATH に置かず、`precmd` フックで「カレントディレクトリの `mise.toml` が要求するツールだけ」を動的に PATH に載せる方式。`mise.toml` の無いディレクトリでは何も載らない（だから gijirog ルートでは Node が見えなかった）。`mise current` は mise コマンド自身が解決するので、ツールが install 済みかどうかと PATH に乗っているかどうかは別問題、という点が直感に反するが、`cd` ベースで env を切り替える設計に沿うと自然。
+
+### 次回やること
+M6 ステップ 3〜5 を進める：(3) 手動で ECR にログインして image を tag/push、(4) ECS Cluster / TaskDefinition（Fargate, secrets で `/gijirog/dev/*` から注入, CloudWatch Logs）/ Task Execution Role / Service（default VPC + public subnet + assignPublicIp + SG ingress 閉、desired count = 1）を CDK に追加、(5) `cdk deploy` で AWS 上に Bot を起動し `/ping` 応答 + CloudWatch Logs 出力を確認。動作確認後はコスト管理のため desired count = 0 に戻す運用を確立する（M11 で EventBridge スケジュール化）。

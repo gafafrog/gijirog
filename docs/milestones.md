@@ -57,11 +57,19 @@
 ## M6: ECS Fargate に Walking Skeleton をデプロイ
 **実行環境: AWS (ECS Fargate) → Discord**
 
-- [ ] ECR にイメージを push する
-- [ ] ECS クラスター・タスク定義・サービスを作成する
-- [ ] タスク定義で SSM /gijirog/prod/DISCORD_TOKEN を参照して環境変数注入する
-- [ ] VPC・セキュリティグループの最低限の設定を行う
-- [ ] 動作確認: AWS 上で Bot が稼働し、/ping に応答する
+方針:
+- SSM プレフィックスは個人プロジェクトのため `/gijirog/dev/` 一本に集約（prod は当面作らない）。
+- ネットワークは default VPC + public subnet + `assignPublicIp: true` + SG ingress 完全クローズ。NAT Gateway は固定費 ~$32/月でオンデマンド運用と相性が悪いため Phase 1 では採用しない。
+- image push は手動で経験してから CI 化（M7）に進む。
+
+- [x] CDK bootstrap (us-west-2) を実行する
+- [x] ECR リポジトリを CDK で定義してデプロイする
+- [ ] 手動で image を ECR に push する（ecr login → build → tag → push）
+- [ ] ECS Cluster / Task Definition / Task Execution Role / Service を CDK に追加する
+- [ ] タスク定義で SSM `/gijirog/dev/DISCORD_TOKEN` および `/gijirog/dev/DISCORD_GUILD_ID` を参照して環境変数注入する
+- [ ] default VPC + public subnet + SG（ingress 閉、egress 全開）で配置する
+- [ ] 動作確認: AWS 上で Bot が稼働し `/ping` に応答する、CloudWatch Logs にログが出る
+- [ ] 動作確認後 desired count = 0 に戻す運用を確立する（恒久オンデマンド化は M11）
 
 ## M7: CI/CD を整備する
 **実行環境: GitHub Actions → AWS**
