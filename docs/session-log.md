@@ -260,3 +260,34 @@ ECR リソースを CDK で記述。`infra/lib/infra-stack.ts`（ボイラープ
 
 ### 次回やること
 M6 ステップ 3〜5 を進める：(3) 手動で ECR にログインして image を tag/push、(4) ECS Cluster / TaskDefinition（Fargate, secrets で `/gijirog/dev/*` から注入, CloudWatch Logs）/ Task Execution Role / Service（default VPC + public subnet + assignPublicIp + SG ingress 閉、desired count = 1）を CDK に追加、(5) `cdk deploy` で AWS 上に Bot を起動し `/ping` 応答 + CloudWatch Logs 出力を確認。動作確認後はコスト管理のため desired count = 0 に戻す運用を確立する（M11 で EventBridge スケジュール化）。
+
+## 2026-05-23
+
+**マイルストーン**: M6（手動 ECR push 完了）
+
+### やったこと
+M6 のステップ 3「手動で image を ECR に push」を完了した。CDK 等のコード変更は無く、概念整理と CLI オペレーションだけのセッション。
+
+`AWS_PROFILE=gijirog-admin` に切り替えて（dev ロールは SSM 取得しか権限が無いので push 不可、という整理を確認した）、`aws sts get-caller-identity` で account を確認。`aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com` で ECR にログイン、`docker build -t gijirog:dev .` → `docker tag gijirog:dev <ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com/gijirog:dev` → `docker push ...` で push 完了。
+
+`aws ecr describe-images --repository-name gijirog` とマネコンの両方で image が登録されたことを確認。BuildKit のデフォルト挙動で 1 回の push に対し 3 つの manifest（本体 image / attestation / それらを束ねる manifest list）が登録されていた。
+
+session log と milestones の更新まで実施。コード差分は無いので、ブランチ `2026-05-23` は session log + milestones の更新のみのコミット予定。
+
+### 学んだこと・議論したこと
+**Docker registry の認証の仕組み**を腰を据えて整理した。Docker CLI から見ると registry は「Docker Registry プロトコル（HTTP API）を喋るただのサーバー」で、Docker Inc. と何の契約も無い AWS のサーバーが同じプロトコルを実装しているだけ、というのが核。`docker login` がやっているのは「指定 registry 用の credentials を `~/.docker/config.json` に保存する」だけで、サーバー側に何かを永続化するわけではない、というのを git の HTTPS credential cache と対比して理解した。
+
+そのうえで **ECR は private がデフォルト** であり、Docker Hub のように「public repo は匿名 pull 可」という設計ではないことを確認。AWS の public registry が必要なら別サービス（`public.ecr.aws` = Amazon ECR Public）になる、という分離。Docker Hub の方は「public でも内部的に anonymous token を取らせる」設計で、rate limiting / アクセスログ / 商業導線が裏側に組み込まれている。
+
+**Docker のプロトコルは username/password を要求するが、AWS は IAM で認証させたい**、というギャップを `aws ecr get-login-password` が橋渡ししている、という整理に落ちた。username は固定文字列 `AWS`、password 部分に 12 時間有効の短命 token を流し込むことで、Docker プロトコルを変えずに IAM 認証の世界に乗せている。token を `--password-stdin` でパイプ渡しするのはシェル履歴・`ps`・スクロールバックに残さないため、という OPSEC 観点も再確認。
+
+`aws ecr get-login-password` は実は CLI 側の便利ラッパーで、内部 API は `ecr:GetAuthorizationToken`。CloudTrail に出るのは `GetAuthorizationToken` の方であって `get-login-password` という名前ではない（後者は AWS の API ではなく CLI コマンド名）。CLI v2 で「decode 済 password だけ出す」薄いラッパーとして追加された経緯まで含めて押さえた。
+
+**Docker の tag と digest の対応関係**を git とのアナロジーで整理。digest (`sha256:...`) = git commit ID 相当の不変ハッシュ、tag = branch / tag 名相当の可変ポインタ。同じ digest に複数 tag を貼れる、tag を別 image に張り替えられる、というのが MUTABLE tag mutability の話。push 先 registry は tag 文字列の先頭部分（`<registry-host>/<repo>:<tag>`）から決まる、という仕様も確認。「tag は住所 + 名前」というのが核。push しないローカル開発オンリーの image は short name（`gijirog:dev`）で良いし、push 前提なら最初から `-t <registry-url>/<repo>:<tag>` で build しても等価、と「`docker tag` の必要性は単独では低い」ことも整理。
+
+**BuildKit デフォルトで manifest が 3 つ出る挙動**にも触れた。1 回の push に対し (1) image 本体 (2) attestation (SBOM / provenance) (3) これらを束ねる manifest list、の 3 manifest が ECR に登録される。`describe-images` で 3 件出てきたのはバグでも重複 push でもなく仕様。詳細理解は次回以降。
+
+セッション運用面の学びとして、長文応答が読みづらいというフィードバックをもらい、「1 ターン 1 トピック、深掘りはユーザーからの追加質問待ち」という方針を memory に追加した。
+
+### 次回やること
+M6 ステップ 4〜5：(4) `infra/lib/gijirog-app-stack.ts` に ECS Cluster / TaskDefinition (Fargate) / Task Execution Role / Service を追加、TaskDefinition の `secrets` で `/gijirog/dev/DISCORD_TOKEN` と `/gijirog/dev/DISCORD_GUILD_ID` を環境変数注入、`logging` で CloudWatch Logs に出す。(5) `cdk deploy` → Discord 上で `/ping` 応答 + CloudWatch Logs 出力を確認。動作確認後 desired count = 0 に戻す運用を確立（恒久化は M11）。

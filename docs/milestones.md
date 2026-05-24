@@ -64,7 +64,7 @@
 
 - [x] CDK bootstrap (us-west-2) を実行する
 - [x] ECR リポジトリを CDK で定義してデプロイする
-- [ ] 手動で image を ECR に push する（ecr login → build → tag → push）
+- [x] 手動で image を ECR に push する（ecr login → build → tag → push）
 - [ ] ECS Cluster / Task Definition / Task Execution Role / Service を CDK に追加する
 - [ ] タスク定義で SSM `/gijirog/dev/DISCORD_TOKEN` および `/gijirog/dev/DISCORD_GUILD_ID` を参照して環境変数注入する
 - [ ] default VPC + public subnet + SG（ingress 閉、egress 全開）で配置する
