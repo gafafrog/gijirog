@@ -6,3 +6,6 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Context lookup cache — contains account/VPC/subnet IDs; this repo is public.
+cdk.context.json
