@@ -96,3 +96,15 @@ aws sso login   # SSO セッションが切れていれば
 ```
 
 `run-dev-container.sh` はホスト側で SSM から secrets を取得し、`docker run` の環境変数としてコンテナに渡します。secrets はイメージには含めません。
+
+## ECS 上で起動・停止する
+
+本番（ECS Fargate）の bot は**平常時オフ**です。サービスの desired count は CDK で `0` を宣言しており、ミーティングなど必要な時だけ起動して、終わったら止めるオンデマンド運用を前提にしています。
+
+```bash
+./scripts/bot.sh up       # 起動（オンラインまで ~30-60 秒）
+./scripts/bot.sh down     # 停止
+./scripts/bot.sh status   # desired / running の数を確認
+```
+
+`bot.sh` は ECS サービスの desired count を切り替えるだけのランタイム操作です。`AWS_PROFILE` にサービス更新権限を持つプロファイルをセットしてから実行してください。`cdk deploy` を再実行すると desired count は平常状態の `0` に戻ります。

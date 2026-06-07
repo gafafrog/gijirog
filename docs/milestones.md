@@ -65,11 +65,12 @@
 - [x] CDK bootstrap (us-west-2) を実行する
 - [x] ECR リポジトリを CDK で定義してデプロイする
 - [x] 手動で image を ECR に push する（ecr login → build → tag → push）
-- [ ] ECS Cluster / Task Definition / Task Execution Role / Service を CDK に追加する
-- [ ] タスク定義で SSM `/gijirog/dev/DISCORD_TOKEN` および `/gijirog/dev/DISCORD_GUILD_ID` を参照して環境変数注入する
-- [ ] default VPC + public subnet + SG（ingress 閉、egress 全開）で配置する
-- [ ] 動作確認: AWS 上で Bot が稼働し `/ping` に応答する、CloudWatch Logs にログが出る
-- [ ] 動作確認後 desired count = 0 に戻す運用を確立する（恒久オンデマンド化は M11）
+- [x] ECS Cluster / Task Definition / Task Execution Role / Service を CDK に追加する
+- [x] タスク定義で SSM `/gijirog/dev/DISCORD_TOKEN` および `/gijirog/dev/DISCORD_GUILD_ID` を参照して環境変数注入する
+- [x] default VPC + public subnet + SG（ingress 閉、egress 全開）で配置する
+- [x] 動作確認: AWS 上で Bot が稼働し `/ping` に応答する、CloudWatch Logs にログが出る
+- [x] 動作確認後 desired count = 0 に戻す運用を確立する（恒久オンデマンド化は M11）
+  - 方針: 平常時 = サービスの desired count `0` を CDK に宣言（IaC は「形」とサービスの平常状態を持つ）。ランタイムの起動/停止は `scripts/bot.sh up|down|status` で desired count を `1`⇄`0` に切り替える（ランタイムは「現在の台数」を持つ）。恒久オンデマンド化（スケジュール起動）は M11。
 
 ## M7: CI/CD を整備する
 **実行環境: GitHub Actions → AWS**
