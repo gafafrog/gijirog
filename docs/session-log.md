@@ -355,3 +355,38 @@ CDK 上の構成は、既存の `GijirogAppStack` とは別の `GijirogCicdStack
 
 ### 次回やること
 M7 の続き。(1) `AWS_PROFILE=gijirog-admin` で `cdk deploy GijirogCicdStack` を実行し、`CiRoleArn` を確定させる（IAM/OIDC を作る admin 級操作なので人間が一度だけ）。(2) `.github/workflows/ci.yml`（PR で lint・test・build、AWS 不要）と `.github/workflows/deploy.yml`（main で SHA build → ECR push → 新 task-def revision を登録して ECS service を更新、OIDC でロールを assume）を書く。(3) 持ち越し: `iam:PassRole` を named role に絞る（app スタックの実行/タスクロールに固定名を付け、Resource をその ARN に限定）、task-def に固定 `family` を付けて workflow から `describe-task-definition` で参照しやすくする、CI ロール ARN を YAML 直書きにするか GH Variable にするか決める。
+
+## 2026-06-13
+
+**マイルストーン**: M7（CI 認証スタックを deploy + deploy workflow 作成）
+
+### やったこと
+前回コードだけ書いていた `GijirogCicdStack` を実際に deploy し、`gijirog-ci` ロール（`arn:aws:iam::<ACCOUNT_ID>:role/gijirog-ci`）を確定させた。続けて `.github/workflows/deploy.yml`（main への push をトリガに ECS へ自動デプロイ）を新規作成し、app スタックに固定 family を 1 行追加した。本セッションは学習目的で、各 step の意味を一つずつ質疑しながら進めたためコード量の割に時間を使った。
+
+`cdk deploy GijirogCicdStack` が最初 `StackAccountRegionNotSpecified` で失敗。切り分けの結果、素の `npx cdk deploy`（env プレフィックス無し）で叩いていたこと、そして根本原因は **SSO ログインをしておらず account（STS 由来）が解決できなかったこと** と判明。`AWS_PROFILE` は export 済みでもプロンプトに `(us-west-2)` が出るのはシェルテーマが `~/.aws/config` を読んで表示しているだけで、creds が生きている証明にはならない、という学びを得た。`aws sso login` 後に deploy 成功。
+
+region の扱いを A（profile から読む = `process.env.CDK_DEFAULT_REGION` のまま）vs B（コードに `region: 'us-west-2'` を固定）で議論し、一度 B にしたが最終的に A に戻した（コードは差分ゼロに着地）。
+
+`deploy.yml` の設計は前回の決定に沿って実装: trigger=main push、`permissions: id-token: write`（OIDC）、runner=`ubuntu-24.04-arm`（Fargate の ARM64 と揃える）、steps は OIDC role assume → ECR login → `:<git-sha>` で build/push → 現 task-def を `describe` → render で image だけ差し替え → `amazon-ecs-deploy-task-definition` で新 revision register + service 更新（`desiredCount` は触らない）。CI ロール ARN は YAML 直書きせず GH Actions Variable（`vars.CI_ROLE_ARN`）参照にした。workflow が `describe-task-definition` で参照できるよう、`FargateTaskDefinition` に `family: 'gijirog'` を追加（持ち越しの 1 つを消化）。
+
+### 学んだこと・議論したこと
+**CDK の env 解決**を実体験で理解した。`CDK_DEFAULT_ACCOUNT` は CDK CLI が STS を叩いて埋めるので **live な creds（SSO セッション）が必須**、`CDK_DEFAULT_REGION` は AWS の region 解決チェーン（`AWS_REGION` → profile の `region`）から埋まる。`fromLookup` は account と region の両方を要求するので、片方でも欠けると同じエラーになる。プロンプトの region 表示 ≠ ログイン済み。
+
+**region をコード固定 vs profile 読み**のトレードオフ。固定は「deploy 先が誰のマシンでも確定（再現性）」、profile 読みは AWS 標準作法だが「deploy 先 region が各自の profile 設定に依存する足元の罠」。1 region 確定プロジェクトなら固定が安全寄りだが、今回は profile 読みで着地（profile に `region = us-west-2` がある前提）。
+
+**GitHub Actions `permissions:`** は workflow に渡る `GITHUB_TOKEN` のスコープ表。1 つでも書くと**列挙外は全部 `none`**（最小権限）。`id-token: write` は `<対象>: <アクセスレベル>` の文法で「id-token という対象を **write（＝発行・mint）**してよい」の意味で、OIDC トークンには read 概念が無く「その場で作り出す」のが write にあたる。これがデフォルトで絶対付かないので OIDC workflow には必須。トークンは 2 種類（GitHub API 用の `GITHUB_TOKEN` と AWS に差し出す OIDC id-token）あり混同しやすい。
+
+**jobs/steps の階層**: workflow > jobs（並列がデフォルト、順序は `needs:`）> steps（同一 runner で逐次）。1 job = まっさらな runner VM が立って捨てられる。steps は `uses:`（既製 action を借りる）と `run:`（生コマンド）の 2 種。step 間の値渡しは 2 経路（`$GITHUB_ENV` 経由の環境変数 / `steps.<id>.outputs.x`）。`run:` 内のシェル変数は step を跨がず消えるので、後段に渡すには `echo "X=.." >> $GITHUB_ENV` が要る（image をこれで渡し、render 結果は output 経由で渡している実例を確認）。
+
+**`runs-on`**: ubuntu がデファクト（課金 1x、windows 2x、macos 10x）。`ubuntu-latest` が「いい感じの最近の Ubuntu」枠だが可変ポインタ（今 24.04）。今回は OS を気にしなくていい case ではなく **arch を Fargate ARM64 に揃える case** なので `ubuntu-24.04-arm` を明示。
+
+**action の出どころ**: `uses: owner/repo@ref` は「その GitHub repo の ref 時点のコードを runner で走らせる」こと。`actions/*`＝GitHub 純正、`aws-actions/*`＝AWS 公式、`docker/*`＝Docker、それ以外はサードパーティで信頼度を都度判断。`@v4` は可変のメジャー版タグ、ガチで固めるなら SHA ピン留め（他人のコードを自分の token 付きで走らせる＝サプライチェーンの観点）。
+
+**ECS の "render" は ECS の概念ではない**。`amazon-ecs-render-task-definition` は **AWS を一切叩かないローカルな JSON 書き換えヘルパー**で、describe で取った task-def の image フィールドだけを `:<sha>` に差し替えて新 JSON を吐く。役割分担は describe（読み取り）→ render（ローカル加工）→ deploy（register + update、書き込み）。既存 task-def には secrets / roles / logs / cpu・mem が全部入っているので、変えるのは image だけで済む。
+
+**action の inputs/outputs は向こうの契約**。render の output 名 `task-definition` も deploy の `with:` のキー名も action 側の `action.yml` で定義されたもので、我々は公開インターフェースに合わせて呼ぶだけ（関数のシグネチャに従う感覚）。一方 `id: render` の `render` は我々が決める名札で、`steps.render.outputs.task-definition` のように "自分で決めた名前" と "向こうが決めた名前" が 1 行に混在する。
+
+**`wait-for-service-stability`** は「CI をデプロイ成功の門番にするか撃ちっぱなしか」の選択。`true` は新 task が健全に上がるまで待ち、起動時クラッシュを workflow の赤で捕まえられる。`false` は API 成功＝green で長いデプロイの CI 分節約・別軸監視向き。ただし今回は `desiredCount: 0` で起こす task が無く一瞬で「0/0 安定」になるため **true でも新 image の起動は検証されない**（本当のスモークテストは `bot.sh up`）。常時 1 台運用になって初めて true が意味を持つので、今は将来のための作法として true を置いている。
+
+### 次回やること
+**deploy pipeline を「点火」する回**。順番が肝で **①を②③より先に**（family が無いと初回 workflow の `describe` がコケる）。(1) `cdk deploy GijirogAppStack`（admin）で固定 family `gijirog` を実体化。(2) `gh variable set CI_ROLE_ARN --body "...gijirog-ci"` で GH Variable 登録。(3) cicd を main にマージ → push トリガで deploy workflow 初稼働を観戦。(4) 緑になったら `./scripts/bot.sh up` で新 image が実際に起動するかスモークテスト。持ち越し: `iam:PassRole` を named role に絞る、ECR を IMMUTABLE 化、CI（lint/test）workflow はミニマム方針で後追い、task-def の seed image（`:dev`）と CI override の drift 関係の整理。

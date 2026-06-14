@@ -34,6 +34,7 @@ export class GijirogAppStack extends cdk.Stack {
     });
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDef', {
+      family: 'gijirog',
       cpu: 256,
       memoryLimitMiB: 512,
       runtimePlatform: {
