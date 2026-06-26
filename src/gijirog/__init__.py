@@ -25,7 +25,7 @@ def build_client(guild_id: int) -> GijirogClient:
 
     @client.tree.command(name="ping", description="Health check — replies with pong.")
     async def ping(interaction: discord.Interaction) -> None:
-        await interaction.response.send_message("pong")
+        await interaction.response.send_message("ポンポン")
 
     @client.event
     async def on_ready() -> None:
