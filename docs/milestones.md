@@ -75,11 +75,11 @@
 ## M7: CI/CD を整備する
 **実行環境: GitHub Actions → AWS**
 
-- [ ] push / pull_request で lint・test・build を実行する
-- [ ] main から ECR push まで自動化する
-- [ ] ECS deploy 用の workflow を作成する
-- [ ] 最初は手動承認つきでデプロイできるようにする
-- [ ] 動作確認: コード変更 → workflow 実行 → 承認 → ECS 反映、の流れが通る
+- [ ] push / pull_request で lint・test・build を実行する（次回ミニマムで後追い）
+- [x] main から ECR push まで自動化する（`deploy.yml`、tag = git SHA）
+- [x] ECS deploy 用の workflow を作成する（push→build/push→新 task-def revision→update-service）
+- [x] ~~最初は手動承認つき~~ → 1人運用のため main push 直デプロイを採用、承認ゲートは置かない（チーム化で再検討）
+- [x] 動作確認: コード変更（`pong`→`ポンポン`）→ workflow → ローリングで ECS 反映、を Discord でライブ観測
 
 ## M8: Bot が音声チャンネルに参加する
 **実行環境: ローカル / AWS → Discord 音声チャンネル**
@@ -108,9 +108,11 @@
 ## M11: 運用改善
 **実行環境: AWS**
 
-- [ ] EventBridge or Lambda による Bot の起動・停止スケジューリング
+- [ ] EventBridge 定時 down（消し忘れ保険、アイドル判定なし・時間で落とす、アプリ改修ゼロ）← 優先
+- [ ] アイドル自動 shutdown（無活動/無音声で bot が自分の service を `desiredCount=0`、task role に `ecs:UpdateService` を自 service 限定で追加。up は手動/定時のまま＝非対称。M8/M9 とセット）
 - [ ] CloudWatch でログ・モニタリング
 - [ ] デプロイ承認の自動化・簡略化
+- [ ] `iam:PassRole` を named role に絞る / ECR を IMMUTABLE 化＋スキャン所見対応 / `:dev` seed と CI override の drift 整理
 
 ---
 

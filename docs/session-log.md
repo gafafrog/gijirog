@@ -390,3 +390,32 @@ region の扱いを A（profile から読む = `process.env.CDK_DEFAULT_REGION` 
 
 ### 次回やること
 **deploy pipeline を「点火」する回**。順番が肝で **①を②③より先に**（family が無いと初回 workflow の `describe` がコケる）。(1) `cdk deploy GijirogAppStack`（admin）で固定 family `gijirog` を実体化。(2) `gh variable set CI_ROLE_ARN --body "...gijirog-ci"` で GH Variable 登録。(3) cicd を main にマージ → push トリガで deploy workflow 初稼働を観戦。(4) 緑になったら `./scripts/bot.sh up` で新 image が実際に起動するかスモークテスト。持ち越し: `iam:PassRole` を named role に絞る、ECR を IMMUTABLE 化、CI（lint/test）workflow はミニマム方針で後追い、task-def の seed image（`:dev`）と CI override の drift 関係の整理。
+
+## 2026-06-26
+
+**マイルストーン**: M7 完了（CI/CD 点火 → コード変更が ECS に反映されるまで walking skeleton を一周）
+
+### やったこと
+前回末尾に立てた「点火3手順」を順に消化した。(1) `AWS_PROFILE=gijirog-admin npx cdk deploy GijirogAppStack` で task-def を固定 family `gijirog` として実体化（diff で family 追加が中心であることを確認してから deploy）。(2) `gh variable set CI_ROLE_ARN` で workflow が参照する `vars.CI_ROLE_ARN` を登録。account ID は `aws sts get-caller-identity` で取り、残りは roleName 固定なので ARN をコードから組み立てた。(3) `cicd` を PR #11 で main にマージ → `deploy` workflow が初稼働。ECR にマージ commit SHA タグの image、ECS に task-def `gijirog:2` が register されたことをマネコンで確認した。
+
+そのうえで CI/CD の**本当のテスト**として「最小コード変更が挙動として観測できるか」を実施。先に `./scripts/bot.sh up` で現行 image（rev2）のベースライン（`/ping` → `pong`）を確認 → `src/gijirog/__init__.py:28` の応答を `"pong"` → `"ポンポン"` に1語変更 → **main へ直 push** → `deploy #2` が走り、CI が rev3 を register、`update-service` が稼働中の1台をローリングで置換。Discord 上で `pong` → `ポンポン` の切り替わりをライブ観測できた。コード1語 → push → build/push → 新 revision → 実機反映、までが一周。締めに `bot.sh down` で平常時オフへ。
+
+（M7 の「PR/push で lint・test・build」「手動承認ゲート」は未実施。前者は次回ミニマムで後追い、後者は1人運用なので main push 直デプロイを採用し承認ゲートは置かない判断にした。）
+
+### 学んだこと・議論したこと
+**ワークフローと CDK の向き**を明確化した。`deploy.yml` は CDK を一切呼ばない。関係は「**人間が CDK でインフラ（ECR/Cluster/TaskDef/Service/CI ロール）を作り、workflow はその上で AWS API を直叩きして image を流し込み service を更新する**」という一方向。「CI が CDK スタックを起動する」という逆の心象を矯正した。これは 6/13 に選んだ「ランタイム差し替えは ECS 直叩き、形は CDK」の層分けの実体。
+
+**family 後付けは replacement**。task-def の `family` は変更が置換を伴うプロパティで、CDK 上は新規論理リソース扱い。これで revision 1（cdk deploy 由来）が立ち、CI が revision 2 を register、`bot.sh up` で rev2 起動、コード変更で rev3 と revision が積み上がった。revision 履歴がそのまま「何がいつ動いたか」のレシート。
+
+**トリガーは「main が push で進む」という一事実**。PR マージでも `git push origin main` の直 push でも GitHub から見れば等価。直 push は (a) 手元の commit SHA がそのまま image タグになり因果が短い＝観測しやすい、一方 (b) レビュー・main 保護を素通りする、というトレードオフ。今は1人＋学習なので直 push、チーム化したら PR + branch protection に戻す線引きを意識。
+
+**ローリング更新はホットリロードの逆＝置換**。同じプロセスの中身を差し替えるのではなく、新 image の task をまるごと起こして旧 task を drain・停止する（cattle, not pets）。1台運用だと切り替わりの瞬間に Bot が一瞬 offline→online する再接続のまばたきが出る。
+
+**ARN の予測可能性**。`roleName` を固定したので CI ロール ARN は account ID 以外すべてコードから確定（IAM はグローバルサービスで region 欄が空、partition=aws、resource=role/gijirog-ci）。`CfnOutput` が無くても組める、を実地で確認した。
+
+**GH Variable の2軸**。`gh` が「どこに書くか」は (1) 認証＝github.com ごとに active なアカウント1つ、(2) 保存スコープ＝**repo 単位がデフォルト**、の別軸。同じアカウントでも別 repo に同名 `CI_ROLE_ARN` を別値で持てる。スコープは repo/org/environment の3階層で、同名衝突時は environment > repo > org（狭い方が勝つ）。ARN は宛先の住所であって認証情報ではない（知っても assume できるのは OIDC 信頼条件＝main を満たす GitHub だけ）ので Secret でなく Variable。`gh` の repo 解決はカレントの `.git` remote 経由なので、`gijirog/` から打てばこの repo 限定になる。
+
+**`bot.sh down` 忘れ（"危ない危ない"）からアイドル自動 shutdown を設計議論**。核心は**非対称性**: down は自動化できる（bot は自分の活動＝コマンド/音声フレームの有無を一番よく知っている）が、up は自動化しにくい（落ちた bot は Discord に繋がっておらず `/ping` も「参加して」も聞こえない）。よって設計は必然的に「**自動 down ＋ 手動/定時 up**」になる。2層で整理: ①即効薬＝EventBridge 定時 down（アイドル判定すらせず時間で落とす消し忘れ保険、アプリ改修ゼロ、元 M11）、②本命＝無活動/無音声で bot が自分の service を `desiredCount=0`（task role に `ecs:UpdateService` を自 service ARN 限定で1権限追加。「音声フレームでタイマーをリセット」に "無音なのに" 条件が綺麗に乗る）。
+
+### 次回やること
+点火が済んだので、**運用の足回りと持ち越しの消化**フェーズ。(優先) **①EventBridge 定時 down** を CDK 数行で入れる（消し忘れ保険、アプリ改修ゼロ）。続けて持ち越し: **②アイドル自動 shutdown**（音声マイルストーン M8/M9 とセット、`ecs:UpdateService` 追加）、**`iam:PassRole` を named role に絞る**（実行/タスクロールに固定名を付け Resource をその ARN へ）、**ECR を IMMUTABLE 化**＋スキャン所見（Critical 1 / High 3、ベースイメージ由来）の対応検討、**CI（lint/test/build）workflow** をミニマム方針で後追い（M7 残）、**`:dev` seed image と CI override の drift 整理**。細かい持ち越し: `deploy.yml` の `wait-for-service-stability: true` は常時1台運用にならないと真価が出ない（`desiredCount: 0` だと 0/0 即安定で起動検証にならない）、`/ping` の description が `replies with pong.` のまま（最小変更のため意図的に未修正）。
