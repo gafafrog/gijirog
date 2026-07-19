@@ -2,7 +2,10 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
+import * as schedulerTargets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -70,7 +73,7 @@ export class GijirogAppStack extends cdk.Stack {
       allowAllOutbound: true,
     });
 
-    new ecs.FargateService(this, 'Service', {
+    const service = new ecs.FargateService(this, 'Service', {
       serviceName: 'gijirog',
       cluster,
       taskDefinition,
@@ -78,6 +81,35 @@ export class GijirogAppStack extends cdk.Stack {
       assignPublicIp: true,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [securityGroup],
+    });
+
+    // 消し忘れ保険: 毎晩 21:00 (America/Los_Angeles) に service を
+    // desiredCount=0 へ落とす。アイドル判定はせず、時間が来たら問答無用で停止。
+    // up は人手 (scripts/bot.sh up) のまま = 非対称な安全装置。
+    new scheduler.Schedule(this, 'NightlyShutdown', {
+      scheduleName: 'gijirog-nightly-shutdown',
+      description: 'Force gijirog ECS service to desiredCount=0 every night (cost guard).',
+      schedule: scheduler.ScheduleExpression.cron({
+        minute: '0',
+        hour: '21',
+        timeZone: cdk.TimeZone.AMERICA_LOS_ANGELES,
+      }),
+      target: new schedulerTargets.Universal({
+        service: 'ecs',
+        action: 'updateService',
+        input: scheduler.ScheduleTargetInput.fromObject({
+          Cluster: cluster.clusterName,
+          Service: service.serviceName,
+          DesiredCount: 0,
+        }),
+        // 既定は全リソース許可になりがちなので、自分の service ARN に絞る。
+        policyStatements: [
+          new iam.PolicyStatement({
+            actions: ['ecs:UpdateService'],
+            resources: [service.serviceArn],
+          }),
+        ],
+      }),
     });
   }
 }

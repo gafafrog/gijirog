@@ -419,3 +419,26 @@ region の扱いを A（profile から読む = `process.env.CDK_DEFAULT_REGION` 
 
 ### 次回やること
 点火が済んだので、**運用の足回りと持ち越しの消化**フェーズ。(優先) **①EventBridge 定時 down** を CDK 数行で入れる（消し忘れ保険、アプリ改修ゼロ）。続けて持ち越し: **②アイドル自動 shutdown**（音声マイルストーン M8/M9 とセット、`ecs:UpdateService` 追加）、**`iam:PassRole` を named role に絞る**（実行/タスクロールに固定名を付け Resource をその ARN へ）、**ECR を IMMUTABLE 化**＋スキャン所見（Critical 1 / High 3、ベースイメージ由来）の対応検討、**CI（lint/test/build）workflow** をミニマム方針で後追い（M7 残）、**`:dev` seed image と CI override の drift 整理**。細かい持ち越し: `deploy.yml` の `wait-for-service-stability: true` は常時1台運用にならないと真価が出ない（`desiredCount: 0` だと 0/0 即安定で起動検証にならない）、`/ping` の description が `replies with pong.` のまま（最小変更のため意図的に未修正）。
+
+## 2026-07-18
+
+**マイルストーン**: M11 着手（EventBridge 定時 down ＝消し忘れ保険を実装・実発火まで確認）
+
+### やったこと
+M11 の最優先「①EventBridge 定時 down」を実装した。`GijirogAppStack` に部品3つ（Schedule / Universal target / IAM ロール）を追記し、既存の ECS リソースには触れず（`FargateService` を `const service` に受け直した1行だけ変更）。毎晩 **21:00 America/Los_Angeles**（ユーザー就寝時刻、PT 指定＝夏冬時間は cron の `timeZone` が自動追従）に、アイドル判定を一切せず service を `desiredCount=0` へ落とす。up は `scripts/bot.sh up` の手動レバーのまま＝非対称な安全装置。
+
+実発火の end-to-end 検証もやった。EventBridge Scheduler には「今すぐ1回実行」CLI が無いため、cron を数分後（17:52 PDT）に一時前倒し → deploy → `bot.sh up` で1台起こす → 前倒し時刻に自動停止するのを Discord で観測、という手順を踏んだ。5:50/5:51 の `/ping`→`ポンポン`（稼働中）が、17:52 発火後の 5:52 には "The application did not respond"（Bot 停止＝応答者不在）に変わり、Schedule→target→IAM→UpdateService の配線が本物に効いていることを確認。確認後 cron を 21:00 に戻して再 deploy。
+
+### 学んだこと・議論したこと
+**「EventBridge」は別物が2つ**。旧来の **EventBridge Rule/Bus**（`aws events put-events` で手動発火できる）と、新しい **EventBridge Scheduler**（cron/rate 専用、手動 Run now が無い）は名前が紛らわしいが別サービス。今回の cron 保険は後者。手軽に手動テストしたいなら Rule + ターゲットだが、Rule は universal target を持たず Lambda 踏み台が要るため、「1 API 直叩き・Lambda 無し」の今回方針とはトレードオフ。学習保険の MVP としては Scheduler が素直と判断。
+
+**universal target = Scheduler の万能ターゲット**。テンプレ化ターゲット（Lambda/SQS 等の決まった相手）と違い、任意の AWS API（`service: 'ecs'`, `action: 'updateService'`）を Scheduler が SDK 代理で直叩きする。API 引数（Cluster/Service/DesiredCount）は `input` に JSON で載せる。判断軸は「1 API・固定引数・撃ちっぱなし → universal target で十分、ロジック（複数 API 直列・戻り値で分岐・整形/通知）が要る瞬間 → Lambda」。
+
+**deploy は平常状態へ reconcile する**。CDK が `desiredCount: 0` を宣言しているので、`cdk deploy` するたびにサービスは 0 に戻る。ゆえに実発火テストの順番が肝で「①cron 前倒しを deploy → ②bot.sh up → ③自動停止を観測」。先に up すると次の deploy で 1 台が消えてハマる。IaC が「形＋平常状態」、bot.sh が「現在の台数」という 6/13 の層分けが、ここでも効いている。
+
+**IAM は ARN 参照で最小権限に**。universal target の既定ポリシーは全リソース許可になりがちなので、`policyStatements` で `ecs:UpdateService` を `service.serviceArn` だけに限定。ARN をベタ書きせず CDK 参照で組むことで、配信でも Account ID が生で出ず、タイポも防げる（`CfnOutput` 無しで ARN を確定できる、の応用）。
+
+**cron のタイムゾーン指定**。`ScheduleExpression.cron({ timeZone: cdk.TimeZone.AMERICA_LOS_ANGELES })` で UTC 変換を手でやらずに済み、DST も AWS が吸収。コンソールでは EventBridge → Scheduler → Schedules（us-west-2）で「Next 10 trigger dates」を見ると次回発火時刻が確認でき、cron 理解の教材になる。
+
+### 次回やること
+M11 の続き。**②アイドル自動 shutdown**（音声 M8/M9 とセット、task role に `ecs:UpdateService` を自 service 限定で追加）、**`iam:PassRole` を named role に絞る**、**ECR IMMUTABLE 化＋スキャン所見（Critical 1 / High 3）対応**、**CI（lint/test/build）workflow** をミニマムで後追い（M7 残）、**`:dev` seed と CI override の drift 整理**。細かい持ち越し: `wait-for-service-stability: true` は常時1台運用まで真価が出ない、`/ping` description が `replies with pong.` のまま。

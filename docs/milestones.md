@@ -108,7 +108,7 @@
 ## M11: 運用改善
 **実行環境: AWS**
 
-- [ ] EventBridge 定時 down（消し忘れ保険、アイドル判定なし・時間で落とす、アプリ改修ゼロ）← 優先
+- [x] EventBridge 定時 down（消し忘れ保険、アイドル判定なし・時間で落とす、アプリ改修ゼロ）— 毎晩 21:00 America/Los_Angeles に desiredCount=0、実発火まで確認済
 - [ ] アイドル自動 shutdown（無活動/無音声で bot が自分の service を `desiredCount=0`、task role に `ecs:UpdateService` を自 service 限定で追加。up は手動/定時のまま＝非対称。M8/M9 とセット）
 - [ ] CloudWatch でログ・モニタリング
 - [ ] デプロイ承認の自動化・簡略化
